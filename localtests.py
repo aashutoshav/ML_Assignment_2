@@ -573,6 +573,7 @@ class GMMTests(unittest.TestCase):
         print(
             "Your image compression within the expected range: ", percent_close > 0.95
         )
+        print(f'Percent close : {percent_close}')
 
     def test_grad_image_compression(self):
         expected_image_data = imageio.imread(
@@ -584,6 +585,7 @@ class GMMTests(unittest.TestCase):
         print(
             "Your image compression within the expected range: ", percent_close > 0.95
         )
+        print(f'Percent close : {percent_close}')
 
 
 class SemisupervisedTests(unittest.TestCase):

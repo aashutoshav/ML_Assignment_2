@@ -34,7 +34,14 @@ class GMM(object):
         Hint:
             Add keepdims=True in your np.sum() function to avoid broadcast error.
         """
-        raise NotImplementedError
+        max_logits = np.max(logit, axis=1, keepdims=True)
+        stable_logit = logit - max_logits
+        exp_logits = np.exp(stable_logit)
+        sum_exp = np.sum(exp_logits, axis=1, keepdims=True)
+        
+        prob = exp_logits / sum_exp
+        
+        return prob
 
     def logsumexp(self, logit):
         """
@@ -45,7 +52,13 @@ class GMM(object):
         Hint:
             The keepdims parameter could be handy
         """
-        raise NotImplementedError
+        max_logits = np.max(logit, axis=1, keepdims=True)
+        stable_logit = logit - max_logits
+        exp_logits = np.exp(stable_logit)
+        sum_exp = np.sum(exp_logits, axis=1, keepdims=True)
+        
+        log_sum_exp = np.log(sum_exp) + max_logits
+        return log_sum_exp
 
     def normalPDF(self, points, mu_i, sigma_i):
         """
@@ -59,7 +72,19 @@ class GMM(object):
         Hint:
             np.diagonal() should be handy.
         """
-        raise NotImplementedError
+        D = mu_i.shape[0]
+        variance = np.diagonal(sigma_i) + SIGMA_CONST
+        
+        term1 = -(D / 2.0) * np.log(2 * np.pi)
+        term2 = -0.5 * np.sum(np.log(variance))
+        
+        centered_pts = points - mu_i
+        term3 = -0.5 * np.sum((centered_pts**2) / variance, axis=1)
+        log_pdf = term1 + term2 + term3
+        pdf = np.exp(log_pdf)
+        
+        return pdf
+        
 
     def multinormalPDF(self, points, mu_i, sigma_i):
         """
@@ -75,7 +100,23 @@ class GMM(object):
             2. Note the value in self.D may be outdated and not correspond to the current dataset.
             3. You may wanna check if the matrix is singular before implementing calculation process.
         """
-        raise NotImplementedError
+        D = mu_i.shape[0]
+
+        try:
+            sigma_reg = sigma_i + np.eye(D) * SIGMA_CONST
+            inv_sigma = np.linalg.inv(sigma_reg)
+            det_sigma = np.linalg.det(sigma_reg)
+        except LinAlgError:
+            return np.zeros(points.shape[0])
+
+        norm_const = 1.0 / (np.power(2 * np.pi, D / 2) * np.sqrt(det_sigma))
+
+        centered_points = points - mu_i
+        mahalanobis_dist = np.sum((centered_points @ inv_sigma) * centered_points, axis=1)
+
+        pdf = norm_const * np.exp(-0.5 * mahalanobis_dist)
+        
+        return pdf
 
     def create_pi(self):
         """
@@ -84,7 +125,8 @@ class GMM(object):
         Return:
         pi: numpy array of length K, prior
         """
-        raise NotImplementedError
+        pi = np.full(self.K, 1.0 / self.K)
+        return pi
 
     def create_mu(self):
         """
@@ -93,7 +135,9 @@ class GMM(object):
         Return:
         mu: KxD numpy array, the center for each gaussian.
         """
-        raise NotImplementedError
+        indices = np.random.choice(self.N, self.K, replace=True)
+        mu = self.points[indices]
+        return mu
 
     def create_mu_kmeans(self, kmeans_max_iters=1000, kmeans_rel_tol=1e-05):
         """
@@ -102,7 +146,21 @@ class GMM(object):
         Return:
         mu: KxD numpy array, the center for each gaussian.
         """
-        raise NotImplementedError
+        
+        kmeans_args = {
+            'max_iters': kmeans_max_iters,
+            'rel_tol': kmeans_rel_tol
+        }
+
+        kmeans = KMeans(
+            points=self.points,
+            k=self.K,
+            init="random",
+            **kmeans_args
+        )
+        
+        centers, _, _ = kmeans.train()
+        return centers
 
     def create_sigma(self):
         """
@@ -113,7 +171,9 @@ class GMM(object):
         sigma: KxDxD numpy array, the diagonal standard deviation of each gaussian.
             You will have KxDxD numpy array for full covariance matrix case
         """
-        raise NotImplementedError
+        identity_matrix = np.eye(self.D)
+        sigma = np.tile(identity_matrix, (self.K, 1, 1))
+        return sigma
 
     def _init_components(self, kmeans_init=False, **kwargs):
         """
@@ -130,7 +190,14 @@ class GMM(object):
         if self.seed is not None:
             np.random.seed(self.seed)
 
-        raise NotImplementedError
+        pi = self.create_pi()
+        if kmeans_init:
+            mu = self.create_mu_kmeans(**kwargs)
+        else:
+            mu = self.create_mu()
+            
+        sigma = self.create_sigma()
+        return pi, mu, sigma
 
     def _ll_joint(self, pi, mu, sigma, full_matrix=FULL_MATRIX, **kwargs):
         """
@@ -144,7 +211,17 @@ class GMM(object):
         Return:
             ll(log-likelihood): NxK array, where ll(i, k) = log pi(k) + log NormalPDF(points_i | mu[k], sigma[k])
         """
-        raise NotImplementedError
+        ll = np.zeros((self.N, self.K))
+        
+        for k in range(self.K):
+            if full_matrix:
+                pdf_values = self.multinormalPDF(self.points, mu[k], sigma[k])
+            else:
+                pdf_values = self.normalPDF(self.points, mu[k], sigma[k])
+                
+            ll[:, k] = np.log(pi[k] + LOG_CONST) + np.log(pdf_values + LOG_CONST)
+            
+        return ll
 
     def _E_step(self, pi, mu, sigma, full_matrix=FULL_MATRIX, **kwargs):
         """
@@ -160,7 +237,9 @@ class GMM(object):
         Hint:
             You should be able to do this with just a few lines of code by using _ll_joint() and softmax() defined above.
         """
-        raise NotImplementedError
+        joint_ll = self._ll_joint(pi, mu, sigma, full_matrix, **kwargs)
+        tau = self.softmax(joint_ll)
+        return tau
 
     def _M_step(self, tau, full_matrix=FULL_MATRIX, **kwargs):
         """
@@ -177,7 +256,21 @@ class GMM(object):
             There are formulas in the slides and in the Jupyter Notebook.
             Undergrads: To simplify your calculation in sigma, make sure to only take the diagonal terms in your covariance matrix
         """
-        raise NotImplementedError
+        N_k = np.sum(tau, axis=0)
+        pi = N_k / self.N
+        
+        mu = (tau.T @ self.points) / (N_k[:, np.newaxis] + LOG_CONST)
+        
+        sigma = np.zeros((self.K, self.D, self.D))
+        for k in range(self.K):
+            centered_points = self.points - mu[k]
+            weighted_outer_product = (centered_points.T * tau[:, k]) @ centered_points
+            sigma[k] = weighted_outer_product / (N_k[k] + LOG_CONST)
+            
+            if not full_matrix:
+                sigma[k] = np.diag(np.diag(sigma[k]))
+                
+        return pi, mu, sigma
 
     def __call__(
         self, full_matrix=FULL_MATRIX, kmeans_init=False, rel_tol=1e-16, **kwargs
@@ -233,7 +326,17 @@ def cluster_pixels_gmm(image, K, max_iters=10, full_matrix=True):
     Hints:
         What do mu and tau represent?
     """
-    raise NotImplementedError
+    H, W, C = image.shape
+    pixels = image.reshape(-1, C)
+    
+    gmm = GMM(pixels, K, max_iters=max_iters)
+    tau, (pi, mu, sigma) = gmm(full_matrix=full_matrix)
+    
+    assignments = np.argmax(tau, axis=1)
+    clustered_pixels = mu[assignments]
+    clustered_img = clustered_pixels.reshape(H, W, C).astype(np.float32)
+    
+    return clustered_img
 
 
 def density(points, pi, mu, sigma, gmm):
@@ -251,7 +354,14 @@ def density(points, pi, mu, sigma, gmm):
 
     HINT: You should be using the formula given in the hints.
     """
-    raise NotImplementedError
+    N = points.shape[0]
+    densities = np.zeros(N)
+    
+    for k in range(len(pi)):
+        pdf_k = gmm.multinormalPDF(points, mu[k], sigma[k])
+        densities += pi[k] * pdf_k
+        
+    return densities
 
 
 def rejection_sample(xmin, xmax, ymin, ymax, pi, mu, sigma, gmm, dmax=1, M=0.1):
@@ -271,4 +381,14 @@ def rejection_sample(xmin, xmax, ymin, ymax, pi, mu, sigma, gmm, dmax=1, M=0.1):
 
     HINT: Refer to the links in the hints
     """
-    raise NotImplementedError
+    while True:
+        x_candidate = np.random.uniform(xmin, xmax)
+        y_candidate = np.random.uniform(ymin, ymax)
+        point = np.array([[x_candidate, y_candidate]])
+        
+        p_candidate = density(point, pi, mu, sigma, gmm)[0]
+        
+        d = np.random.uniform(0, dmax)
+        
+        if d <= p_candidate / M:
+            return x_candidate, y_candidate
