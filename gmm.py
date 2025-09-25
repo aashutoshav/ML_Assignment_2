@@ -327,15 +327,13 @@ def cluster_pixels_gmm(image, K, max_iters=10, full_matrix=True):
         What do mu and tau represent?
     """
     H, W, C = image.shape
-    pixels = image.reshape(-1, C)
-    
+    pixels = image.reshape(-1, C).astype(np.float32)
+
     gmm = GMM(pixels, K, max_iters=max_iters)
     tau, (pi, mu, sigma) = gmm(full_matrix=full_matrix)
-    
     assignments = np.argmax(tau, axis=1)
     clustered_pixels = mu[assignments]
-    clustered_img = clustered_pixels.reshape(H, W, C).astype(np.float32)
-    
+    clustered_img = clustered_pixels.reshape(H, W, C).astype(np.uint8)
     return clustered_img
 
 
