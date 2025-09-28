@@ -219,7 +219,14 @@ class GMM(object):
             else:
                 pdf_values = self.normalPDF(self.points, mu[k], sigma[k])
                 
-            ll[:, k] = np.log(pi[k] + LOG_CONST) + np.log(pdf_values + LOG_CONST)
+            if pi[k] > 0:
+                log_pi = np.log(pi[k])
+            else:
+                log_pi = -np.inf
+            
+            log_pdf = np.log(pdf_values + LOG_CONST)    
+            
+            ll[:, k] = log_pi + log_pdf
             
         return ll
 

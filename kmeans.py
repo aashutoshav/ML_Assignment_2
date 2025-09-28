@@ -86,7 +86,7 @@ class KMeans(object):
         Hint: In case the np.sqrt() function is giving an error in the pairwise_dist() function, you can use the squared distances directly for comparison.
         """
         dist_matrix = pairwise_dist(self.points, self.centers)
-        self.assignments = np.argmin(dist_matrix, axis=1)
+        self.assignments = np.argmin(dist_matrix, axis=1).astype(int)
         return self.assignments
 
     def update_centers(self):
@@ -118,7 +118,9 @@ class KMeans(object):
             self.loss = 0.0
             return self.loss
     
-        assigned_centers = self.centers[self.assignments]
+        int_assignments = self.assignments.astype(int)
+    
+        assigned_centers = self.centers[int_assignments]
         diff = self.points - assigned_centers
         self.loss = np.sum(diff ** 2)
         return self.loss
@@ -267,75 +269,54 @@ def adjusted_rand_statistic(xGroundTruth, xPredicted):
     
     return np.float64(ari)
 
-
 def silhouette_score(X, labels):
     """
     Args:
-        X : N x D numpy array, where N is # points and D is the dimensionality
-        labels : 1D numpy array of predicted labels of length N where N = no. of test samples
+    X : N x D numpy array, where N is # points and D is the dimensionality
+    labels : 1D numpy array of predicted labels of length N where N = no. of test samples
     Return:
-        silhouette score: final coefficient value of type np.float64
-
-    HINT: You can use loops for this function.
-    HINT: The idea is to calculate the mean distance between a point and the other points
-    in its cluster (the intra cluster distance) and the mean distance between a point and the
-    other points in its closest cluster (the inter cluster distance)
-        1.  Calculate the pairwise_dist between all points to each other (N x N)
-        2.  Loop over all points in the provided data (X) and for each point calculate:
-
-            Intra Cluster Distances (point p to the other points in its own cluster)
-                a. Identify all points in the same cluster as p (excluding p itself)
-                b. Calculate the mean pairwise_dist between p and the other points
-                c. If there are no other points in the same cluster, assign an
-                   intra-cluster distance of 0
-
-            Inter Cluster Distances (point p to the points in the closest cluster)
-                a. Loop over all clusters except for p's cluster
-                b. For each cluster, identify all points belonging to it
-                c. Calculate the mean pairwise_dist between p and those points
-                d. Set the inter-cluster distance to the minimum mean pairwise_dist
-                   among all clusters. Again, if there are no other clusters, use
-                   an inter-cluster distance of 0.
-
-        3. Calculate the silhouette scores for each point using
-                s_i = (mu_out(x_i) - mu_in(x_i)) / max(mu_out(x_i), mu_in(x_i))
-        4. Average the silhouette score across all points
-
-    Note: Refer to the Clustering Evaluation slides from Lecture
+    silhouette score: final coefficient value of type np.float64
     """
     N = X.shape[0]
-    if len(np.unique(labels)) < 2:
-        return 0.0
-
-    all_dists = pairwise_dist(X, X)
     
-    scores = []
+    pairwise_dist = np.zeros((N, N))
     for i in range(N):
-        p_label = labels[i]
+        for j in range(N):
+            pairwise_dist[i, j] = np.linalg.norm(X[i] - X[j])
+    
+    silhouette_scores = []
+    
+    for i in range(N):
+        current_label = labels[i]
+        same_cluster_indices = np.where((labels == current_label) & (np.arange(N) != i))[0]
         
-        in_cluster_mask = (labels == p_label) & (np.arange(N) != i)
-        if not np.any(in_cluster_mask):
-            a_i = 0
+        if len(same_cluster_indices) == 0:
+            mu_in = 0
         else:
-            a_i = np.mean(all_dists[i, in_cluster_mask])
-
-        other_labels = np.unique(labels[labels != p_label])
+            mu_in = np.mean(pairwise_dist[i, same_cluster_indices])
         
-        if len(other_labels) == 0:
-            b_i = 0
+        unique_labels = np.unique(labels)
+        other_clusters = unique_labels[unique_labels != current_label]
+        
+        if len(other_clusters) == 0:
+            mu_out = 0
         else:
-            mean_other_dists = []
-            for other_label in other_labels:
-                other_cluster_mask = (labels == other_label)
-                mean_dist = np.mean(all_dists[i, other_cluster_mask])
-                mean_other_dists.append(mean_dist)
-            b_i = np.min(mean_other_dists)
-
-        denominator = max(a_i, b_i)
-        if denominator == 0:
+            min_inter_distance = float('inf')
+            
+            for cluster_label in other_clusters:
+                cluster_indices = np.where(labels == cluster_label)[0]
+                
+                mean_distance_to_cluster = np.mean(pairwise_dist[i, cluster_indices])
+                
+                min_inter_distance = min(min_inter_distance, mean_distance_to_cluster)
+            
+            mu_out = min_inter_distance
+        
+        if max(mu_out, mu_in) == 0:
             s_i = 0
         else:
-            s_i = (b_i - a_i) / denominator
-        scores.append(s_i)
-
-    return np.mean(scores)
+            s_i = (mu_out - mu_in) / max(mu_out, mu_in)
+        
+        silhouette_scores.append(s_i)
+    
+    return np.float64(np.mean(silhouette_scores))
