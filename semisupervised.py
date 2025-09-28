@@ -14,7 +14,9 @@ def complete_(data):
     Return:
         labeled_complete: n x (D+1) array (n <= N) where values contain both complete features and labels
     """
-    raise NotImplementedError
+    has_nan = np.isnan(data).any(axis=1)
+    comp_mask = ~has_nan
+    return data[comp_mask]
 
 
 def incomplete_(data):
@@ -24,7 +26,14 @@ def incomplete_(data):
     Return:
         labeled_incomplete: n x (D+1) array (n <= N) where values contain incomplete features but complete labels
     """
-    raise NotImplementedError
+    features = data[:, :-1]
+    labels = data[:, -1]
+    
+    nan_in_feat = np.isnan(features).any(axis=1)
+    valid_label = ~np.isnan(labels)
+    inc_mask = nan_in_feat & valid_label
+    
+    return data[inc_mask]
 
 
 def unlabeled_(data):
@@ -34,7 +43,14 @@ def unlabeled_(data):
     Return:
         unlabeled_complete: n x (D+1) array (n <= N) where values contain complete features but incomplete labels
     """
-    raise NotImplementedError
+    features = data[:, :-1]
+    labels = data[:, -1]
+    
+    has_comp_feat = ~np.isnan(features).any(axis=1)
+    has_nan_label = np.isnan(labels)
+    unl_mask = has_comp_feat & has_nan_label
+    
+    return data[unl_mask]
 
 
 class CleanData(object):
@@ -51,7 +67,13 @@ class CleanData(object):
             dist: N x M array, where dist[i, j] is the euclidean distance between
             x[i, :] and y[j, :]
         """
-        raise NotImplementedError
+        x_sq = np.sum(x**2, axis=1, keepdims=True)
+        y_sq = np.sum(y**2, axis=1)
+        xy_dot = 2 * (x @ y.T)
+        
+        dist_sq = np.maximum(x_sq + y_sq - xy_dot, 0)
+        
+        return np.sqrt(dist_sq)
 
     def __call__(self, incomplete_points, complete_points, K, **kwargs):
         """
@@ -75,7 +97,42 @@ class CleanData(object):
             (6) Do NOT use a for-loop over N_incomplete; you MAY use a for-loop over the M labels and the D features (e.g. omit one feature at a time)
             (7) You do not need to order the rows of the return array clean_points in any specific manner
         """
-        raise NotImplementedError
+        filled_points = incomplete_points.copy()
+        D = complete_points.shape[1] - 1
+        unique_labels = np.unique(complete_points[:, -1])
+        
+        feature_indices = np.arange(D)
+        
+        for d in range(D):
+            for label in unique_labels:
+                target_mask = np.isnan(incomplete_points[:, d]) & (incomplete_points[:, -1] == label)
+                if not np.any(target_mask):
+                    continue
+                
+                target_points = incomplete_points[target_mask]
+                
+                candidate_mask = complete_points[:, -1] == label
+                candidate_neighbors = complete_points[candidate_mask]
+                
+                dist_feature_indices = feature_indices[feature_indices != d]
+
+                distances = self.pairwise_dist(
+                    target_points[:, dist_feature_indices],
+                    candidate_neighbors[:, dist_feature_indices]
+                )
+                
+                neighbor_indices = np.argsort(distances, axis=1)[:, :K]
+                
+                k_neighbors = candidate_neighbors[neighbor_indices]
+                neighbor_values_d = k_neighbors[:, :, d]
+                
+                imputed_values = np.mean(neighbor_values_d, axis=1)
+                
+                filled_points[target_mask, d] = imputed_values
+
+        clean_points = np.vstack([complete_points, filled_points])
+        
+        return clean_points
 
 
 def median_clean_data(data):
@@ -89,7 +146,15 @@ def median_clean_data(data):
         (2) Return all values to max one decimal point
         (3) The labels column will never have NaN values
     """
-    raise NotImplementedError
+    cleaned_data = data.copy()
+    D = cleaned_data.shape[1] - 1
+    
+    for d in range(D):
+        median_value = np.nanmedian(cleaned_data[:, d])
+        nan_mask = np.isnan(cleaned_data[:, d])
+        cleaned_data[nan_mask, d] = median_value
+        
+    return np.round(cleaned_data, decimals=1)
 
 
 class SemiSupervised(object):
@@ -104,7 +169,12 @@ class SemiSupervised(object):
         Return:
             prob: N x D numpy array where softmax has been applied row-wise to input logit
         """
-        raise NotImplementedError
+        max_logits = np.max(logit, axis=1, keepdims=True)
+        cent_logits = logit - max_logits
+        exp_logits = np.exp(cent_logits)
+        sum_exp = np.sum(exp_logits, axis=1, keepdims=True)
+        prob = exp_logits / sum_exp
+        return prob
 
     def logsumexp(self, logit):
         """
@@ -113,7 +183,14 @@ class SemiSupervised(object):
         Return:
             s: N x 1 array where s[i,0] = logsumexp(logit[i,:])
         """
-        raise NotImplementedError
+        max_logits = np.max(logit, axis=1, keepdims=True)
+        cent_logits = logit - max_logits
+        exp_logits = np.exp(cent_logits)
+        sum_exp = np.sum(exp_logits, axis=1, keepdims=True)
+        log_sum_exp = np.log(sum_exp) + max_logits
+        
+        return log_sum_exp
+        
 
     def normalPDF(self, logit, mu_i, sigma_i):
         """
@@ -127,7 +204,18 @@ class SemiSupervised(object):
         Hint:
             np.diagonal() should be handy.
         """
-        raise NotImplementedError
+        mu = mu_i[0]
+        sigma = sigma_i[0]
+        D = mu.shape[0]
+        
+        variances = np.diagonal(sigma) + SIGMA_CONST
+        term1 = -(D / 2.0) * np.log(2 * np.pi)
+        term2 = -0.5 * np.sum(np.log(variances))
+        centered_pts = logit - mu
+        term3 = -0.5 * np.sum((centered_pts**2) / variances, axis=1)
+        log_pdf = term1 + term2 + term3
+
+        return np.exp(log_pdf).reshape(1, -1)
 
     def _init_components(self, points, K, **kwargs):
         """
@@ -144,7 +232,24 @@ class SemiSupervised(object):
             1. Given that the data is labeled, what's the best estimate for pi?
             2. Using the labels, you can look at individual clusters and estimate the best value for mu, sigma
         """
-        raise NotImplementedError
+        features = points[:, :-1]
+        labels = points[:, -1]
+        N, D = features.shape
+
+        pi = np.zeros(K)
+        mu = np.zeros((K, D))
+        sigma = np.zeros((K, D, D))
+
+        for k in range(K):
+            points_k = features[labels == k]
+            
+            pi[k] = len(points_k) / N
+            
+            mu[k] = np.mean(points_k, axis=0)
+            cov_matrix = np.cov(points_k, rowvar=False)
+            sigma[k] = np.diag(np.diag(cov_matrix))
+
+        return pi, mu, sigma
 
     def _ll_joint(self, points, pi, mu, sigma, **kwargs):
         """
@@ -156,7 +261,16 @@ class SemiSupervised(object):
         Return:
             ll(log-likelihood): NxK array, where ll(i, j) = log pi(j) + log NormalPDF(points_i | mu[j], sigma[j])
         """
-        raise NotImplementedError
+        N, D = points.shape
+        K = pi.shape[0]
+        ll = np.zeros((N, K))
+        
+        for k in range(K):
+            pdf = self.normalPDF(points, mu[k:k+1, :], sigma[k:k+1, :, :])
+            ll[:, k] = np.log(pi[k] + LOG_CONST) + np.log(pdf[0] + LOG_CONST)
+            
+        return ll
+            
 
     def _E_step(self, points, pi, mu, sigma, **kwargs):
         """
@@ -170,7 +284,10 @@ class SemiSupervised(object):
 
         Hint: You should be able to do this with just a few lines of code by using _ll_joint() and softmax() defined above.
         """
-        raise NotImplementedError
+        ll = self._ll_joint(points, pi, mu, sigma, **kwargs)
+        gamma = self.softmax(ll)
+        
+        return gamma
 
     def _M_step(self, points, gamma, **kwargs):
         """
@@ -184,7 +301,22 @@ class SemiSupervised(object):
 
         Hint:  There are formulas in the slide.
         """
-        raise NotImplementedError
+        N, D = points.shape
+        K = gamma.shape[1]
+        N_k = np.sum(gamma, axis=0)
+
+        pi = N_k / N
+
+        mu = (gamma.T @ points) / (N_k[:, np.newaxis] + LOG_CONST)
+
+        sigma = np.zeros((K, D, D))
+        for k in range(K):
+            cent_points = points - mu[k]
+            wt_sq_diff = gamma[:, k][:, np.newaxis] * (cent_points**2)
+            diag_sig = np.sum(wt_sq_diff, axis=0) / (N_k[k] + LOG_CONST)
+            sigma[k] = np.diag(diag_sig)
+                
+        return pi, mu, sigma
 
     def __call__(
         self, points, K, max_iters=100, abs_tol=1e-16, rel_tol=1e-16, **kwargs
@@ -205,7 +337,38 @@ class SemiSupervised(object):
 
         Hint: Look at Table 1 in the paper
         """
-        raise NotImplementedError
+        labels = points[:, -1]
+        labeled_mask = ~np.isnan(labels)
+        unlabeled_mask = np.isnan(labels)
+        
+        labeled_data = points[labeled_mask]
+        unlabeled_points = points[unlabeled_mask, :-1]
+
+        pi, mu, sigma = self._init_components(labeled_data, K)
+        
+        prev_loss = None
+        
+        for i in range(max_iters):
+            gamma_unlabeled = self._E_step(unlabeled_points, pi, mu, sigma)
+            
+            labeled_labels = labeled_data[:, -1].astype(int)
+            gamma_labeled = np.eye(K)[labeled_labels]
+            
+            all_points = np.vstack([labeled_data[:, :-1], unlabeled_points])
+            all_gamma = np.vstack([gamma_labeled, gamma_unlabeled])
+            
+            pi, mu, sigma = self._M_step(all_points, all_gamma)
+            
+            ll_joint = self._ll_joint(all_points, pi, mu, sigma)
+            loss = -np.sum(self.logsumexp(ll_joint))
+            
+            if i > 0 and prev_loss is not None:
+                diff = np.abs(prev_loss - loss)
+                if diff < abs_tol or (diff / np.abs(prev_loss)) < rel_tol:
+                    break
+            prev_loss = loss
+
+        return pi, mu, sigma
 
 
 class ComparePerformance(object):
