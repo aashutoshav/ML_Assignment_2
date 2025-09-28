@@ -1,6 +1,4 @@
 import numpy as np
-from sklearn.metrics import confusion_matrix
-from scipy.special import comb
 
 class KMeans(object):
 
@@ -230,27 +228,41 @@ def adjusted_rand_statistic(xGroundTruth, xPredicted):
         4. Then calculate the adjusted rand index value
     """
     
-    contingency_matrix = confusion_matrix(xGroundTruth, xPredicted)
-    sum_comb_nij = np.sum([comb(n, 2, exact=True) for n in contingency_matrix.flatten()])
-
-    sum_comb_ai = np.sum([comb(n, 2, exact=True) for n in np.sum(contingency_matrix, axis=1)])
-
-    sum_comb_bj = np.sum([comb(n, 2, exact=True) for n in np.sum(contingency_matrix, axis=0)])
-
-    N = len(xGroundTruth)
-    total_pairs = comb(N, 2, exact=True)
-
+    def combinations(n):
+        return n * (n - 1) // 2 if n >= 2 else 0
+    
+    n_samples = len(xGroundTruth)
+    if n_samples < 2:
+        return 1.0
+    
+    true_labels = np.unique(xGroundTruth)
+    pred_labels = np.unique(xPredicted)
+    contingency_table = np.zeros((true_labels.size, pred_labels.size), dtype=int)
+    
+    true_map = {label: i for i, label in enumerate(true_labels)}
+    pred_map = {label: i for i, label in enumerate(pred_labels)}
+    
+    for i in range(n_samples):
+        true_idx = true_map[xGroundTruth[i]]
+        pred_idx = pred_map[xPredicted[i]]
+        contingency_table[true_idx, pred_idx] += 1
+    
+    sum_comb_nij = np.sum([combinations(n) for n in contingency_table.flatten()])
+    
+    sum_comb_ai = np.sum([combinations(n) for n in np.sum(contingency_table, axis=1)])
+    sum_comb_bj = np.sum([combinations(n) for n in np.sum(contingency_table, axis=0)])
+    
+    total_pairs = combinations(n_samples)
     if total_pairs == 0:
-        return 1.0 if sum_comb_ai == 0 and sum_comb_bj == 0 else 0.0
+        return 1.0
 
     expected_idx = (sum_comb_ai * sum_comb_bj) / total_pairs
-    
     max_idx = 0.5 * (sum_comb_ai + sum_comb_bj)
-    
-    denominator = (max_idx - expected_idx)
+    denominator = max_idx - expected_idx
+
     if denominator == 0:
         return 1.0 if sum_comb_nij == expected_idx else 0.0
-
+    
     ari = (sum_comb_nij - expected_idx) / denominator
     
     return np.float64(ari)
