@@ -242,12 +242,20 @@ class SemiSupervised(object):
 
         for k in range(K):
             points_k = features[labels == k]
-            
-            pi[k] = len(points_k) / N
-            
-            mu[k] = np.mean(points_k, axis=0)
-            cov_matrix = np.cov(points_k, rowvar=False)
-            sigma[k] = np.diag(np.diag(cov_matrix))
+            N_k = len(points_k)
+            pi[k] = N_k / N if N > 0 else 0
+
+            if N_k > 0:
+                mu[k] = np.mean(points_k, axis=0)
+
+                centered = points_k - mu[k]
+
+                cov_matrix = (centered.T @ centered) / N_k
+
+                sigma[k] = np.diag(np.diag(cov_matrix) + SIGMA_CONST)
+            else:
+                mu[k] = np.zeros(D)
+                sigma[k] = np.eye(D) * 1.0
 
         return pi, mu, sigma
 

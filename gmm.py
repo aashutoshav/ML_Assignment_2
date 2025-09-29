@@ -76,12 +76,14 @@ class GMM(object):
         variance = np.diagonal(sigma_i) + SIGMA_CONST
         
         term1 = -(D / 2.0) * np.log(2 * np.pi)
-        term2 = -0.5 * np.sum(np.log(variance))
+        term2 = -0.5 * np.sum(np.log(variance + LOG_CONST))
         
         centered_pts = points - mu_i
         term3 = -0.5 * np.sum((centered_pts**2) / variance, axis=1)
         log_pdf = term1 + term2 + term3
+        log_pdf = np.clip(log_pdf, -500, 500)
         pdf = np.exp(log_pdf)
+        pdf = np.maximum(pdf, LOG_CONST)
         
         return pdf
         
@@ -106,15 +108,26 @@ class GMM(object):
             sigma_reg = sigma_i + np.eye(D) * SIGMA_CONST
             inv_sigma = np.linalg.inv(sigma_reg)
             det_sigma = np.linalg.det(sigma_reg)
+            
+            if det_sigma <= 0:
+                det_sigma = LOG_CONST
+            
         except LinAlgError:
             return np.zeros(points.shape[0])
 
-        norm_const = 1.0 / (np.power(2 * np.pi, D / 2) * np.sqrt(det_sigma))
+        log_norm_const = -0.5 * D * np.log(2 * np.pi) - 0.5 * np.log(det_sigma + LOG_CONST)
 
         centered_points = points - mu_i
         mahalanobis_dist = np.sum((centered_points @ inv_sigma) * centered_points, axis=1)
-
-        pdf = norm_const * np.exp(-0.5 * mahalanobis_dist)
+        
+        mahalanobis_dist = np.clip(mahalanobis_dist, 0, 500)
+        
+        log_pdf = log_norm_const - 0.5 * mahalanobis_dist
+        
+        log_pdf = np.clip(log_pdf, -500, 500)
+        pdf = np.exp(log_pdf)
+        
+        pdf = np.maximum(pdf, LOG_CONST)
         
         return pdf
 
@@ -224,7 +237,7 @@ class GMM(object):
             else:
                 log_pi = -np.inf
             
-            log_pdf = np.log(pdf_values + LOG_CONST)    
+            log_pdf = np.log(pdf_values)
             
             ll[:, k] = log_pi + log_pdf
             
