@@ -77,12 +77,10 @@ class GMM(object):
         centered_pts = points - mu_i
         
         log_prob_per_dim = -0.5 * np.log(2 * np.pi * variance) - (0.5 * (centered_pts**2 / variance))
-        log_pdf = np.sum(log_prob_per_dim, axis=1)
+        log_pdf = np.sum(log_prob_per_dim, axis=1) 
         
         pdf = np.exp(log_pdf)
-        pdf = np.maximum(pdf, LOG_CONST)
         return pdf
-        
 
     def multinormalPDF(self, points, mu_i, sigma_i):
         """
@@ -115,7 +113,6 @@ class GMM(object):
         log_pdf = log_norm_const - 0.5 * mahalanobis_dist
         
         pdf = np.exp(log_pdf)
-        pdf = np.maximum(pdf, LOG_CONST)
         return pdf
 
     def create_pi(self):
@@ -215,12 +212,13 @@ class GMM(object):
         
         for k in range(self.K):
             if full_matrix:
-                log_pdf_values = self.multinormalPDF(self.points, mu[k], sigma[k])
+                pdf_values = self.multinormalPDF(self.points, mu[k], sigma[k])
             else:
-                log_pdf_values = self.normalPDF(self.points, mu[k], sigma[k])
+                pdf_values = self.normalPDF(self.points, mu[k], sigma[k])
 
             log_pi = np.log(pi[k] + LOG_CONST)
-            ll[:, k] = log_pi + log_pdf_values
+            log_pdf = np.log(pdf_values + LOG_CONST)
+            ll[:, k] = log_pi + log_pdf
             
         return ll
 
