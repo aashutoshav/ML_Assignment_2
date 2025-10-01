@@ -101,10 +101,10 @@ class GMM(object):
             sigma_reg = sigma_i + np.eye(D) * SIGMA_CONST
             sign, logdet = np.linalg.slogdet(sigma_reg)
             if sign != 1:
-                return np.full(points.shape[0], LOG_CONST)
+                return np.full(points.shape[0], 0.0)
             inv_sigma = np.linalg.inv(sigma_reg)
         except LinAlgError:
-            return np.full(points.shape[0], LOG_CONST)
+            return np.full(points.shape[0], 0.0)
 
         log_norm_const = -0.5 * D * np.log(2 * np.pi) - 0.5 * logdet
         centered_points = points - mu_i
